@@ -1,7 +1,7 @@
 -- TNS|FPV Hub|TNE
--- FPV Hub for the Pocket (128x64): header bar, four raised icon tiles, a row of
--- pill tabs and page dots. NEXT/PREV moves, ENTER opens a tile or changes a tab,
--- EXIT goes back. Tiles only show when their script is on the SD card; LED needs RGB LEDs.
+-- FPV Hub for the Pocket (128x64): header bar, four raised icon tiles and a row of
+-- oval tabs. NEXT/PREV moves, ENTER opens a tile or changes a tab, EXIT goes back.
+-- The layout tab is a picker: ENTER, then NEXT/PREV, then ENTER saves (EXIT cancels). Tiles only show when their script is on the SD card; LED needs RGB LEDs.
 
 local LED_CFG = "/SCRIPTS/RGBLED/hubcfg.txt"        -- last LED color picked (RGB radios only)
 local LAYOUT_CFG = "/SCRIPTS/TELEMETRY/sticks.cfg"  -- read by /SCRIPTS/TELEMETRY/sticks.lua
@@ -60,12 +60,12 @@ tile("TELEM", "gauge", "screen", "/SCRIPTS/TELEMETRY/dash.lua")
 tile("BTFL", "rates", "tool", "/SCRIPTS/TOOLS/bf.lua")
 tile("ELRS", "antenna", "tool", "/SCRIPTS/TOOLS/elrs.lua")
 
--- tabs: "light" cycles the LED color, "layout" cycles the TELE layout, "locate" opens the radar
+-- tabs: "locate" opens the radar, "layout" picks the TELE layout, "light" cycles the LED color
 local RADAR = "/SCRIPTS/TOOLS/FPVRadar.lua"
 local TABS = {}
-if setRGBLedColor then TABS[#TABS + 1] = "light" end
-TABS[#TABS + 1] = "layout"
 if exists(RADAR) then TABS[#TABS + 1] = "locate" end
+TABS[#TABS + 1] = "layout"
+if setRGBLedColor then TABS[#TABS + 1] = "light" end
 
 -- restore saved choices
 local layout = 1
@@ -92,6 +92,7 @@ for key, rows in pairs(ICONS) do
 end
 
 local sel, open = 1, nil -- sel: 1..#TILES are tiles, then tabs
+local picking = nil -- layout index shown while the layout picker is open
 local child, err
 local WHITE = ERASE or 0 -- drawing white on black needs ERASE
 
@@ -146,6 +147,20 @@ local function roundFill(x, y, w, h)
   vline(x, y + 1, y + h - 2); vline(x + w - 1, y + 1, y + h - 2)
 end
 
+-- oval: the first three rows from each end are cut in by 4, 2 and 1 px
+local INSET = { 4, 2, 1 }
+local function oval(x, y, w, h, filled)
+  for j = 0, h - 1 do
+    local k = math.min(j, h - 1 - j)
+    local c = INSET[k + 1] or 0
+    if filled or k == 0 then hline(x + c, x + w - 1 - c, y + j)
+    else
+      local e = math.max(c, (INSET[k] or 0) - 1) -- reach back to the row above so the edge is unbroken
+      hline(x + c, x + e, y + j); hline(x + w - 1 - e, x + w - 1 - c, y + j)
+    end
+  end
+end
+
 local function drawIcon(key, x, y, f)
   for _, r in ipairs(runs[key]) do hline(x + r[1], x + r[2], y + r[3], f) end
 end
@@ -170,7 +185,7 @@ end
 local CHAR = 5 -- SMLSIZE width per character on the Pocket
 
 local function drawTile(t, x, y, selected)
-  local w, h = 61, 17
+  local w, h = 61, 18
   if selected then x, y = x + 1, y + 1 end
   -- label centered in the space right of the icon
   local tx = x + 18 + math.floor((w - 20 - #t.label * CHAR) / 2)
@@ -188,13 +203,20 @@ end
 
 local function tabLabel(kind)
   if kind == "light" then return "LED " .. COLORS[color][1] end
-  if kind == "layout" then return LAYOUTS[layout] end
+  if kind == "layout" then return LAYOUTS[picking or layout] end
   return "LOCATE"
 end
 
 local function menu(event)
   local count = #TILES + #TABS
-  if isNext(event) then sel = sel % count + 1
+  if picking then
+    if isNext(event) then picking = picking % #LAYOUTS + 1
+    elseif isPrev(event) then picking = (picking - 2) % #LAYOUTS + 1
+    elseif event == EVT_VIRTUAL_ENTER then
+      layout, picking = picking, nil
+      writeFile(LAYOUT_CFG, LAYOUTS[layout])
+    elseif event == EVT_VIRTUAL_EXIT then picking = nil end
+  elseif isNext(event) then sel = sel % count + 1
   elseif isPrev(event) then sel = (sel - 2) % count + 1
   elseif event == EVT_VIRTUAL_ENTER then
     if sel <= #TILES then
@@ -204,9 +226,7 @@ local function menu(event)
     end
     local kind = TABS[sel - #TILES]
     if kind == "light" then nextColor()
-    elseif kind == "layout" then
-      layout = layout % #LAYOUTS + 1
-      writeFile(LAYOUT_CFG, LAYOUTS[layout])
+    elseif kind == "layout" then picking = layout
     else
       open = { label = "RADAR", kind = "tool", path = RADAR }
       child, err = load(RADAR)
@@ -216,32 +236,33 @@ local function menu(event)
 
   header()
   for i, t in ipairs(TILES) do
-    drawTile(t, 2 + ((i - 1) % 2) * 63, 11 + math.floor((i - 1) / 2) * 19, i == sel)
+    drawTile(t, 2 + ((i - 1) % 2) * 63, 11 + math.floor((i - 1) / 2) * 20, i == sel)
   end
 
-  -- pill tabs
-  local w = math.floor((122 - (#TABS - 1) * 4) / #TABS)
+  -- oval tabs along the bottom
+  local w = math.floor((124 - (#TABS - 1) * 3) / #TABS)
   for i, kind in ipairs(TABS) do
-    local x, y = 3 + (i - 1) * (w + 4), 49
+    local x, y = 2 + (i - 1) * (w + 3), 51
     local label = tabLabel(kind)
     local selected = sel == #TILES + i
-    -- 11 px tall so the text never touches the border
-    if selected then roundFill(x, y, w, 11) else roundRect(x, y, w, 11) end
-    lcd.drawText(x + math.floor((w - #label * CHAR) / 2) + 1, y + 3, label, SMLSIZE + (selected and INVERS or 0))
-  end
-
-  -- page dots: where you are in the list
-  local x0 = 64 - count * 3
-  for i = 1, count do
-    local x = x0 + (i - 1) * 6
-    if i == sel then lcd.drawFilledRectangle(x, 61, 4, 2) else hline(x + 1, x + 2, 62) end
+    local f = selected and ERASE or FORCE
+    oval(x, y, w, 12, selected)
+    local editing = kind == "layout" and picking
+    -- while picking, the name blinks every half second and small arrows sit at the ends
+    if not (editing and math.floor(getTime() / 50) % 2 == 1) then
+      lcd.drawText(x + math.floor((w - #label * CHAR) / 2) + 1, y + 3, label, SMLSIZE + (selected and INVERS or 0))
+    end
+    if editing then
+      lcd.drawPoint(x + 2, y + 6, f); vline(x + 3, y + 5, y + 7, f)
+      lcd.drawPoint(x + w - 3, y + 6, f); vline(x + w - 4, y + 5, y + 7, f)
+    end
   end
 end
 
 local function run(event)
   lcd.clear()
   if open == nil then
-    if event == EVT_VIRTUAL_EXIT then return 1 end
+    if event == EVT_VIRTUAL_EXIT and not picking then return 1 end
     menu(event)
     return 0
   end

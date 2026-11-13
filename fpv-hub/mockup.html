@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FPV Hub mockup</title>
+<style>
+  :root { --bg:#16181c; --fg:#e8e8e8; --muted:#8a8f98; --lcdOn:#1d2a1a; --lcdOff:#b9c7a4; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; }
+  main { max-width:1100px; margin:0 auto; padding:24px 16px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  p { color:var(--muted); margin:0 0 16px; }
+  .row { display:flex; flex-wrap:wrap; gap:24px; }
+  .card { background:#202329; border-radius:10px; padding:14px; }
+  .card h2 { font-size:14px; margin:0 0 8px; font-weight:600; }
+  canvas { image-rendering:pixelated; display:block; width:512px; max-width:100%; aspect-ratio:2/1; border-radius:4px; }
+  .keys { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+  button { background:#2f343c; color:var(--fg); border:0; border-radius:6px; padding:8px 12px; font:inherit; cursor:pointer; }
+  button:hover { background:#3b414b; }
+  .state { color:var(--muted); font-size:13px; margin-top:8px; min-height:1.5em; }
+  .small canvas { width:256px; }
+  ul { color:var(--muted); padding-left:18px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>FPV Hub: nuevo diseño</h1>
+  <p>Pantalla a escala real (128x64, cada píxel ampliado x4). Interactivo: usa los botones o las flechas ← → , Enter y Esc del teclado.</p>
+
+  <div class="row">
+    <div class="card">
+      <h2>Interactivo, 3 pills (LOCATE · LAYOUT · LED)</h2>
+      <canvas id="live3" width="128" height="64"></canvas>
+      <div class="keys">
+        <button data-k="prev" data-t="live3">◀ PREV</button>
+        <button data-k="next" data-t="live3">NEXT ▶</button>
+        <button data-k="enter" data-t="live3">ENTER</button>
+        <button data-k="exit" data-t="live3">EXIT</button>
+      </div>
+      <div class="state" id="live3-state"></div>
+    </div>
+    <div class="card">
+      <h2>Interactivo, 2 pills (LOCATE · LAYOUT)</h2>
+      <canvas id="live2" width="128" height="64"></canvas>
+      <div class="keys">
+        <button data-k="prev" data-t="live2">◀ PREV</button>
+        <button data-k="next" data-t="live2">NEXT ▶</button>
+        <button data-k="enter" data-t="live2">ENTER</button>
+        <button data-k="exit" data-t="live2">EXIT</button>
+      </div>
+      <div class="state" id="live2-state"></div>
+    </div>
+  </div>
+
+  <h1 style="margin-top:28px">Estados</h1>
+  <p>Cómo se ve cada paso del selector de layout (pill del medio).</p>
+  <div class="row small">
+    <div class="card"><h2>1. Tile seleccionado</h2><canvas id="s1" width="128" height="64"></canvas></div>
+    <div class="card"><h2>2. Pill LAYOUT seleccionada</h2><canvas id="s2" width="128" height="64"></canvas></div>
+    <div class="card"><h2>3. ENTER: modo elegir (◀ ▶)</h2><canvas id="s3" width="128" height="64"></canvas></div>
+    <div class="card"><h2>4. ENTER: guardado</h2><canvas id="s4" width="128" height="64"></canvas></div>
+  </div>
+
+  <h1 style="margin-top:28px">Qué cambia</h1>
+  <ul>
+    <li>Se quitan los puntos de página; los tiles crecen a 18 px y las pills a 12 px.</li>
+    <li>Las pestañas pasan a ser óvalos (esquinas más redondas) pegados abajo, como en el dibujo.</li>
+    <li>Pill del medio = layout de sticks. ENTER entra en modo elegir: aparecen flechas ◀ ▶ y el texto parpadea; NEXT/PREV cambia el layout; ENTER guarda en <code>sticks.cfg</code>; EXIT cancela y vuelve al que estaba.</li>
+    <li>LED solo aparece en radios con LED RGB. Si la Pocket no tiene, quedan 2 pills (LOCATE · LAYOUT).</li>
+  </ul>
+</main>
+
+<script>
+// 3x5 pixel font, close to EdgeTX SMLSIZE on 128x64 screens (5 px advance)
+const F = {
+  A:"010101111101101",B:"110101110101110",C:"011100100100011",D:"110101101101110",E:"111100110100111",
+  F:"111100110100100",G:"011100101101011",H:"101101111101101",I:"111010010010111",J:"001001001101010",
+  K:"101101110101101",L:"100100100100111",M:"101111111101101",N:"110101101101101",O:"010101101101010",
+  P:"110101110100100",Q:"010101101110011",R:"110101110101101",S:"011100010001110",T:"111010010010010",
+  U:"101101101101111",V:"101101101101010",W:"101101111111101",X:"101101010101101",Y:"101101010010010",
+  Z:"111001010100111"," ":"000000000000000",
+  "0":"111101101101111","1":"010110010010111","2":"110001010100111","3":"110001010001110","4":"101101111001001",
+  "5":"111100110001110","6":"011100111101111","7":"111001010010010","8":"111101111101111","9":"111101111001110",
+  ":":"000010000010000","<":"001010100010001",">":"100010001010100",
+};
+const ICONS = {
+  display:["############","#..........#","#.##.......#","#..........#","#.......##.#","#..........#","############",".....##.....","...######...","............"],
+  gauge:["...######...","..#......#..",".#........#.","#..........#","#....#.....#","#.....#....#","#.....##...#","#..........#","############","............"],
+  rates:["#...........","#..........#","#.........#.","#........#..","#......##...","#....##.....","#.###.......","##..........","############","............"],
+  antenna:[".#...##...#.","#..#.##.#..#","#.#..##..#.#","#.#..##..#.#","#..#.##.#..#",".#...##...#.",".....##.....",".....##.....","....####....","...######..."],
+};
+const TILES = [["STICKS","display"],["TELEM","gauge"],["BTFL","rates"],["ELRS","antenna"]];
+const LAYOUTS = ["BOXES","TRAIL","MINI","CHRONO"];
+const COLORS = ["OFF","RED","GRN","BLU","PUR","ORG","WHT"];
+
+function lcd(ctx){
+  const px = new Uint8Array(128*64);
+  const set=(x,y,v)=>{ if(x>=0&&x<128&&y>=0&&y<64) px[y*128+x]=v; };
+  const L = {
+    set,
+    h:(x1,x2,y,v=1)=>{for(let x=x1;x<=x2;x++)set(x,y,v)},
+    v:(x,y1,y2,v=1)=>{for(let y=y1;y<=y2;y++)set(x,y,v)},
+    fill:(x,y,w,h,v=1)=>{for(let j=0;j<h;j++)for(let i=0;i<w;i++)set(x+i,y+j,v)},
+    text:(x,y,s,v=1)=>{for(const ch of s){const g=F[ch]||F[" "];for(let j=0;j<5;j++)for(let i=0;i<3;i++)if(g[j*3+i]==="1")set(x+i,y+j,v);x+=4;} },
+    tw:(s)=>s.length*4-1,
+    icon:(k,x,y,v=1)=>ICONS[k].forEach((r,j)=>[...r].forEach((c,i)=>{if(c==="#")set(x+i,y+j,v)})),
+    flush:()=>{const im=ctx.createImageData(128,64);for(let i=0;i<px.length;i++){const on=px[i];im.data[i*4]=on?0x1d:0xb9;im.data[i*4+1]=on?0x2a:0xc7;im.data[i*4+2]=on?0x1a:0xa4;im.data[i*4+3]=255;}ctx.putImageData(im,0,0);}
+  };
+  return L;
+}
+
+// rectangle with corner pixels cut
+function roundRect(L,x,y,w,h){L.h(x+1,x+w-2,y);L.h(x+1,x+w-2,y+h-1);L.v(x,y+1,y+h-2);L.v(x+w-1,y+1,y+h-2);}
+function roundFill(L,x,y,w,h,v=1){L.fill(x+1,y,w-2,h,v);L.v(x,y+1,y+h-2,v);L.v(x+w-1,y+1,y+h-2,v);}
+// oval pill: rows of the outline, top half mirrored to the bottom
+function pill(L,x,y,w,h,filled){
+  const inset=[4,2,1]; // pixels cut from each end on the first 3 rows
+  for(let j=0;j<h;j++){
+    const k=Math.min(j,h-1-j), c=k<3?inset[k]:0;
+    if(filled) L.h(x+c,x+w-1-c,y+j);
+    else if(k===0) L.h(x+c,x+w-1-c,y+j);
+    else { const p=inset[k-1]??0; L.h(x+c,x+Math.max(c,p-1),y+j); L.h(x+w-1-Math.max(c,p-1),x+w-1-c,y+j); }
+  }
+}
+
+function draw(canvas, st, tick){
+  const L = lcd(canvas.getContext("2d"));
+  // header
+  L.fill(0,0,128,9); L.text(3,2,"FPV HUB",0); L.text(84,2,"14:32",0);
+  L.h(109,121,2,0);L.h(109,121,6,0);L.v(109,2,6,0);L.v(121,2,6,0);L.v(122,3,5,0);L.v(123,3,5,0);L.fill(111,4,7,1,0);
+  // tiles 61x19
+  TILES.forEach(([label,icon],i)=>{
+    let x=2+(i%2)*63, y=11+Math.floor(i/2)*20; const w=61,h=18; const s=st.sel===i;
+    if(s){x++;y++;}
+    const tx=x+18+Math.floor((w-20-L.tw(label))/2);
+    if(s){roundFill(L,x,y,w,h);L.icon(icon,x+4,y+4,0);L.text(tx,y+7,label,0);}
+    else{roundRect(L,x,y,w,h);L.h(x+2,x+w-1,y+h);L.v(x+w,y+2,y+h-1);L.icon(icon,x+4,y+4);L.text(tx,y+7,label);}
+  });
+  // pills at the bottom
+  const tabs = st.tabs, n=tabs.length, gap=4, w=Math.floor((124-(n-1)*gap)/n), y=51, h=12;
+  tabs.forEach((kind,i)=>{
+    const x=2+i*(w+gap), idx=4+i, s=st.sel===idx;
+    let label = kind==="locate"?"LOCATE":kind==="led"?"LED "+COLORS[st.color]:LAYOUTS[st.editing?st.pending:st.layout];
+    pill(L,x,y,w,h,s);
+    const v = s?0:1;
+    const editing = kind==="layout" && st.editing;
+    const blinkOff = editing && Math.floor(tick/6)%2===1;
+    if(!blinkOff) L.text(x+Math.floor((w-L.tw(label))/2),y+4,label,v);
+    if(editing){ L.text(x+4,y+4,"<",v); L.text(x+w-7,y+4,">",v); }
+  });
+  L.flush();
+}
+
+function makeState(tabs){ return {tabs, sel:0, layout:0, pending:0, editing:false, color:2, msg:""}; }
+function press(st,k){
+  const count=4+st.tabs.length; st.msg="";
+  if(st.editing){
+    if(k==="next") st.pending=(st.pending+1)%LAYOUTS.length;
+    else if(k==="prev") st.pending=(st.pending+LAYOUTS.length-1)%LAYOUTS.length;
+    else if(k==="enter"){ st.layout=st.pending; st.editing=false; st.msg="Guardado en sticks.cfg: "+LAYOUTS[st.layout]; }
+    else if(k==="exit"){ st.editing=false; st.msg="Cancelado, sigue "+LAYOUTS[st.layout]; }
+    return;
+  }
+  if(k==="next") st.sel=(st.sel+1)%count;
+  else if(k==="prev") st.sel=(st.sel+count-1)%count;
+  else if(k==="exit") st.msg="EXIT: cierra el hub";
+  else if(k==="enter"){
+    if(st.sel<4){ st.msg="Abre "+TILES[st.sel][0]; return; }
+    const kind=st.tabs[st.sel-4];
+    if(kind==="layout"){ st.editing=true; st.pending=st.layout; }
+    else if(kind==="led"){ st.color=(st.color+1)%COLORS.length; }
+    else st.msg="Abre FPV Radar";
+  }
+}
+
+const live = { live3: makeState(["locate","layout","led"]), live2: makeState(["locate","layout"]) };
+let focus = "live3";
+document.querySelectorAll("button").forEach(b=>b.onclick=()=>{focus=b.dataset.t;press(live[focus],b.dataset.k);});
+addEventListener("keydown",e=>{const k={ArrowRight:"next",ArrowDown:"next",ArrowLeft:"prev",ArrowUp:"prev",Enter:"enter",Escape:"exit"}[e.key];if(k){e.preventDefault();press(live[focus],k);}});
+
+const statics = {
+  s1:{...makeState(["locate","layout","led"]),sel:0},
+  s2:{...makeState(["locate","layout","led"]),sel:5},
+  s3:{...makeState(["locate","layout","led"]),sel:5,editing:true,pending:1},
+  s4:{...makeState(["locate","layout","led"]),sel:5,layout:1},
+};
+let tick=0;
+(function loop(){
+  tick++;
+  for(const id in live){ draw(document.getElementById(id),live[id],tick);
+    const st=live[id]; document.getElementById(id+"-state").textContent = st.msg || (st.editing?"Eligiendo layout: NEXT/PREV cambia, ENTER guarda, EXIT cancela":""); }
+  for(const id in statics) draw(document.getElementById(id),statics[id],id==="s3"?0:tick);
+  setTimeout(loop,1000/30);
+})();
+</script>
+</body>
+</html>
