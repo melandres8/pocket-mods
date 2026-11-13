@@ -64,7 +64,7 @@ tile("ELRS", "antenna", "tool", "/SCRIPTS/TOOLS/elrs.lua")
 local RADAR = "/SCRIPTS/TOOLS/FPVRadar.lua"
 local TABS = {}
 if exists(RADAR) then TABS[#TABS + 1] = "locate" end
-TABS[#TABS + 1] = "layout"
+if exists("/SCRIPTS/TELEMETRY/sticks.lua") then TABS[#TABS + 1] = "layout" end
 if setRGBLedColor then TABS[#TABS + 1] = "light" end
 
 -- restore saved choices

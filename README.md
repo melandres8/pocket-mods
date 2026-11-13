@@ -10,7 +10,7 @@ Scripts y mods para la RadioMaster Pocket (EdgeTX, pantalla de 128x64). Probados
 | [`alertas/`](alertas/) | Avisos de voz y vibración por batería baja y señal | `SCRIPTS/FUNCTIONS/` |
 | [`betaflight/`](betaflight/) | Betaflight TX Lua Scripts 1.8.0, sin modificar (GPL-3.0) | `SCRIPTS/` |
 
-¿Vienes del TikTok? Lo que buscas está en [`fpv-radar/`](fpv-radar/).
+¿Vienes del TikTok? El radar está en [`fpv-radar/`](fpv-radar/) y el menú en [`fpv-hub/`](fpv-hub/).
 
 ## Instalación general
 
